@@ -1,0 +1,266 @@
+C51 COMPILER V9.01   ANGAPP                                                                06/25/2018 15:28:32 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE ANGAPP
+OBJECT MODULE PLACED IN .\obj\AngApp.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE scr\AngApp.c OPTIMIZE(9,SIZE) BROWSE DEBUG OBJECTEXTEND PRINT(.\list\AngApp
+                    -.lst) OBJECT(.\obj\AngApp.obj)
+
+line level    source
+
+   1          /*--------------------------------文*件*信*息-----------------------------
+   2          * 文件名：  AngApp.c
+   3          * 版　本：  v1.0
+   4          * 描  述：  100T双轴 整合后的版本
+   5          * 创建人：   
+   6          * 日  期：   
+   7          --------------------------------------------------------------------------
+   8          *当前版本:      v1.0
+   9          *修 改 人:
+  10          *日　  期:
+  11          ----------------------------------修改履历--------------------------------
+  12          1、
+  13          2、
+  14          3、
+  15          4、
+  16          ------------------------------------------------------------------------*/
+  17          #define __CAL_C__
+  18          #include "_Include.h"
+  19          
+  20          
+  21          static int32s xdata  angp;
+  22          static int32s xdata  angx_syszero;
+  23          static int32s xdata  angy_syszero;
+  24          static int32s xdata  angx_usrzero;
+  25          static int32s xdata  angy_usrzero;
+  26          static int32s xdata  angx_inst;     //安装角
+  27          static int32s xdata  angy_inst;     //安装角
+  28          static int32s xdata  BufZerox_usr;
+  29          static int32s xdata  BufZeroy_usr;
+  30          static int32s xdata  BufZerox_sys;
+  31          static int32s xdata  BufZeroy_sys;
+  32                  
+  33          
+  34          void AngInit(void)
+  35          {
+  36   1          SnInit();                   //传感器模块初始化
+  37   1      
+  38   1          angp=0;                     //面角度
+  39   1          SetAngXInst(0);
+  40   1          SetAngYInst(0);             //安裝角
+  41   1          SetAngXSysZero(0);
+  42   1          SetAngYSysZero(0);          //系統置0
+  43   1          SetAngXUsrZero(0);          //用戶置0
+  44   1          SetAngYUsrZero(0);
+  45   1                                      //
+  46   1          BufZerox_usr=0;             //用户置0后相对角度值
+  47   1          BufZeroy_usr=0;
+  48   1          BufZerox_sys=0;
+  49   1          BufZeroy_sys=0;
+  50   1      
+  51   1      }
+  52          //***********************************************************************/
+  53          // *功    能：面角度计算
+  54          // *入    口：x= X轴倾角值 y = y轴倾角值 p = 面角度存储地址
+C51 COMPILER V9.01   ANGAPP                                                                06/25/2018 15:28:32 PAGE 2   
+
+  55          // *出    口：
+  56          // *备    注：
+  57          // *函数性质：
+  58          //***********************************************************************/
+  59          static  int32s  PAngCalc (int32s angx,int32s angy)
+  60          {
+  61   1          float x,y,s;
+  62   1      
+  63   1          x  = angx;
+  64   1          x  = x / 180000 * PI;
+  65   1          x  = sin(x);
+  66   1          x *= x;
+  67   1      
+  68   1          y  = angy;
+  69   1          y  = y / 180000 * PI;
+  70   1          y  = sin(y);
+  71   1          y *= y;
+  72   1      
+  73   1          s  = sqrt(x+y);
+  74   1          if( s >= 1 )//面角度计算出错?
+  75   1          {
+  76   2              return 90000;
+  77   2          }
+  78   1          s = 180000 * asin(s) / PI ;
+  79   1          return( (int32s)s );
+  80   1      }
+  81          //***********************************************************************/
+  82          // *功    能：
+  83          // *入    口：
+  84          // *出    口：
+  85          // *备    注：
+  86          // *函数性质：
+  87          //***********************************************************************/
+  88          int32s GetAngP(void)
+  89          {
+  90   1      
+  91   1              angp=PAngCalc(GetXAngAllSetVal(),GetYAngAllSetVal());
+  92   1          return angp;    //获取面角度
+  93   1      }
+  94          
+  95          int32s GetAngXSysZero(void)
+  96          {
+  97   1          return angx_syszero;    //获取X轴系统置零参数
+  98   1      }
+  99          int32s GetAngYSysZero(void)
+ 100          {
+ 101   1          return angy_syszero;    //获取Y轴系统置零参数
+ 102   1      }
+ 103          int32s GetAngXUsrZero(void)
+ 104          {
+ 105   1          return angx_usrzero;    //获取X轴用户置零参数
+ 106   1      }
+ 107          int32s GetAngYUsrZero(void)
+ 108          {
+ 109   1          return angy_usrzero;    //获取Y轴用户置零参数
+ 110   1      }
+ 111          
+ 112          int32s GetAngXInst(void)
+ 113          {
+ 114   1          return angx_inst;    //获取X轴用户安装角参数
+ 115   1      }
+ 116          int32s GetAngYInst(void)
+C51 COMPILER V9.01   ANGAPP                                                                06/25/2018 15:28:32 PAGE 3   
+
+ 117          {
+ 118   1          return angy_inst;    //获取Y轴用户安装角参数
+ 119   1      }
+ 120          
+ 121          
+ 122          #if MODBUS_CHECK_ENB==1
+ 123          int32s GetAngXZeroUsr(void)
+ 124          {
+ 125   1          return  BufZerox_usr; //获取X轴相对角度值用户       
+ 126   1      }
+ 127          int32s GetAngYZeroUsr(void)
+ 128          {
+ 129   1          return  BufZeroy_usr; //获取y轴相对角度值用户       
+ 130   1      }
+ 131          #endif
+ 132          int32s GetAngXRelSys(void)
+ 133          {
+ 134   1          return  BufZerox_sys; //获取X轴相对角度值内部       
+ 135   1      }
+ 136          int32s GetAngYRelSys(void)
+ 137          {
+ 138   1          return  BufZeroy_sys; //获取y轴相对角度值内部       
+ 139   1      }
+ 140          
+ 141          //***********************************************************************/
+ 142          // *功    能：
+ 143          // *入    口：
+ 144          // *出    口：
+ 145          // *备    注：
+ 146          // *函数性质：
+ 147          //***********************************************************************/
+ 148          void SetAngXSysZero(int32s zore)
+ 149          {
+ 150   1          angx_syszero=zore;    //设置X轴系统置零参数
+ 151   1      }
+ 152          void SetAngYSysZero(int32s zore)
+ 153          {
+ 154   1          angy_syszero=zore;    //设置Y轴系统置零参数
+ 155   1      }
+ 156          
+ 157          void SetAngXUsrZero(int32s zore)
+ 158          {
+ 159   1          angx_usrzero=zore;    //设置X轴用户置零参数
+ 160   1      }
+ 161          void SetAngYUsrZero(int32s zore)
+ 162          {
+ 163   1          angy_usrzero=zore;    //设置Y轴用户置零参数
+ 164   1      }
+ 165          
+ 166          void SetAngXInst(int32s ang_inst)
+ 167          {
+ 168   1          angx_inst=ang_inst;    //设置X轴用户安装角参数
+ 169   1      }
+ 170          void SetAngYInst(int32s ang_inst)
+ 171          {
+ 172   1          angy_inst=ang_inst;    //设置Y轴用户安装角参数
+ 173   1      }
+ 174          
+ 175          
+ 176          
+ 177          //***********************************************************************/
+ 178          // *功    能：设置角度值0位置
+C51 COMPILER V9.01   ANGAPP                                                                06/25/2018 15:28:32 PAGE 4   
+
+ 179          // *入    口：
+ 180          // *出    口：
+ 181          // *备    注：
+ 182          // *函数性质：
+ 183          //***********************************************************************/
+ 184          void SetAngZero (int32s *angval ,int32s setval)
+ 185          {
+ 186   1          *angval=*angval-setval;
+ 187   1      }
+ 188          
+ 189          void SetAngZeroAdd (int32s *angval ,int32s setval)
+ 190          {
+ 191   1          *angval=*angval+setval;
+ 192   1      }
+ 193          //***********************************************************************/
+ 194          // *功    能：
+ 195          // *入    口：
+ 196          // *出    口：
+ 197          // *备    注：
+ 198          // *函数性质：
+ 199          //***********************************************************************/
+ 200          int32s GetXAngAllSetVal(void)
+ 201          {
+ 202   1          int32s tmp;
+ 203   1          tmp=GetXAng();                    //获取X轴的原始角度值
+ 204   1          SetAngZero(&tmp,angx_syszero);    //系统置0
+ 205   1          BufZerox_sys=tmp;                 //系统置0后相对角度值
+ 206   1          SetAngZero(&tmp,angx_usrzero);    //用户置0
+ 207   1          BufZerox_usr=tmp;                 //用户置0后相对角度值
+ 208   1          SetAngZeroAdd(&tmp,angx_inst);    //安装角
+ 209   1          return tmp;
+ 210   1      
+ 211   1      }
+ 212          //***********************************************************************/
+ 213          // *功    能：
+ 214          // *入    口：
+ 215          // *出    口：
+ 216          // *备    注：
+ 217          // *函数性质：
+ 218          //***********************************************************************/
+ 219          int32s GetYAngAllSetVal(void)
+ 220          {
+ 221   1          int32s tmp;
+ 222   1          tmp=GetYAng();                    //获取X轴的原始角度值
+ 223   1          SetAngZero(&tmp,angy_syszero);    //系统置0
+ 224   1          BufZeroy_sys=tmp;                 //系统置0后相对角度值
+ 225   1          SetAngZero(&tmp,angy_usrzero);    //用户置0
+ 226   1          BufZeroy_usr=tmp;                 //用户置0后相对角度值
+ 227   1          SetAngZeroAdd(&tmp,angy_inst);    //安装角
+ 228   1          return tmp;
+ 229   1      }
+ 230          
+ 231          
+ 232          //***********************************************************************/
+ 233          //        E N D
+ 234          //***********************************************************************/
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    645    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =     63    ----
+C51 COMPILER V9.01   ANGAPP                                                                06/25/2018 15:28:32 PAGE 5   
+
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----      32
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,19 @@
+".\obj\STARTUP.obj",
+".\obj\AdcDrv.obj",
+".\obj\Calibration.obj",
+".\obj\CmdSub.obj",
+".\obj\Comm.obj",
+".\obj\Delay.obj",
+".\obj\Filter.obj",
+".\obj\Flash.obj",
+".\obj\Init.obj",
+".\obj\Main.obj",
+".\obj\ModBusCrc.obj",
+".\obj\ModBusRtu.obj",
+".\obj\Send.obj",
+".\obj\Sensor.obj",
+".\obj\Sub.obj",
+".\obj\Timer.obj",
+".\obj\AngApp.obj" 
+TO ".\obj\WTAL" 
+PRINT(".\list\WTAL.m51") RAMSIZE(256) 

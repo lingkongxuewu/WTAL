@@ -1,0 +1,71 @@
+C51 COMPILER V9.01   MAIN                                                                  06/25/2018 15:28:30 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN .\obj\Main.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE scr\Main.c OPTIMIZE(9,SIZE) BROWSE DEBUG OBJECTEXTEND PRINT(.\list\Main.lst
+                    -) OBJECT(.\obj\Main.obj)
+
+line level    source
+
+   1          /*--------------------------------文*件*信*息-----------------------------
+   2          * 项目名: 
+   3          * 文件名：  Main.c
+   4          * 版　本：  v1.0
+   5          * 描  述：  100T双轴 整合后的版本
+   6          * 创建人：   
+   7          * 日  期：   
+   8          --------------------------------------------------------------------------
+   9          *当前版本:      v1.0
+  10          *修 改 人:
+  11          *日　  期:
+  12          ----------------------------------修改履历--------------------------------
+  13          1、
+  14          2、
+  15          3、
+  16          4、
+  17          ------------------------------------------------------------------------*/
+  18          #define   __MAIN_C__
+  19          #include  "_Include.h"
+  20          //***********************************************************************/
+  21          // *功    能： 开关量初始化
+  22          // *入    口：
+  23          // *出    口：
+  24          // *备    注：
+  25          // *函数性质：
+  26          //***********************************************************************/
+  27          //***********************************************************************/
+  28          void main (void)
+  29          {
+  30   1          SFRPAGE = ACTIVE_PAGE;              // Set for PCA0MD
+  31   1          PCA0MD &= ~0x40;                    // WDTE = 0 (clear watchdog timer enable)
+  32   1          Init_All();
+  33   1          EA = 1;
+  34   1          Flash_CalDataInit();
+  35   1          MenuId=MOD_MOD0;
+  36   1              delay_ms(250);
+  37   1          while(1)
+  38   1          {
+  39   2              SnProc();                    //角度计算
+  40   2              Timer2_TaskInMain();             //主动发送模式
+  41   2              Send_TimeProc();                         //COMM的处理函数
+  42   2              delay_ms(1);
+  43   2          }
+  44   1      }
+  45          //***********************************************************************/
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =     43    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =      1    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+C51 COMPILER V9.01   MAIN                                                                  06/25/2018 15:28:30 PAGE 2   
+
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

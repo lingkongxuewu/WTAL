@@ -1,0 +1,134 @@
+C51 COMPILER V9.01   TIMER                                                                 06/25/2018 15:28:32 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE TIMER
+OBJECT MODULE PLACED IN .\obj\Timer.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE scr\Timer.c OPTIMIZE(9,SIZE) BROWSE DEBUG OBJECTEXTEND PRINT(.\list\Timer.l
+                    -st) OBJECT(.\obj\Timer.obj)
+
+line level    source
+
+   1          /*--------------------------------文*件*信*息-----------------------------
+   2          * 文件名：  Time.c
+   3          * 版　本：  v1.0
+   4          * 描  述：  100T双轴 整合后的版本
+   5          * 创建人：  
+   6          * 日  期：  
+   7          --------------------------------------------------------------------------
+   8          *当前版本:      v1.0
+   9          *修 改 人:
+  10          *日　  期:
+  11          ----------------------------------修改履历--------------------------------
+  12          1、
+  13          2、
+  14          3、
+  15          4、
+  16          ------------------------------------------------------------------------*/
+  17          #define   __TIMER_C__
+  18          #include "_Include.h"
+  19          //***********************************************************************/
+  20          // *功    能：
+  21          // *入    口：
+  22          // *出    口：
+  23          // *备    注：
+  24          // *函数性质：
+  25          //***********************************************************************/
+  26          void Timer2_Init (void)
+  27          {       
+  28   1              int8u SfrPage_ = SFRPAGE;
+  29   1              SFRPAGE = ACTIVE_PAGE;  
+  30   1              TMR2CN  = 0x00;                                                 // Stop Timer2; Clear TF2;      
+  31   1              CKCON  |= 0x10;                                                 // Select SYSCLK for timer 2 source             0x30
+  32   1              TMR2RL  = -(SYSCLK/1000);                               // Init reload value for 100 us                 65535-(SYSCLK/10000)  ???1MS mickxie 20111
+             -031
+  33   1              TMR2    = 0xFFFF;                                               // Set to reload immediately
+  34   1              ET2             = 1;                                                    // Enable Timer2 interrupts
+  35   1              TR2             = 1;                                                    // Start Timer2
+  36   1              SFRPAGE = SfrPage_;
+  37   1              MainTime4Cnt=SendSpeed[SendSpeedNum];
+  38   1      
+  39   1      
+  40   1      }
+  41          /***********************************************************************/
+  42          // *功能：
+  43          // *入口：主动发送时间周期，轮询COMM的时间周期
+  44          // *出口：
+  45          // *备注：
+  46          // *函数性质：
+  47          /***********************************************************************/
+  48          void Timer2_ISR (void) interrupt 5
+  49          {
+  50   1              TF2H = 0;                                                               // Clear Timer2 interrupt alarming
+  51   1              Timer2_TaskInIsr();
+  52   1      }
+  53          
+C51 COMPILER V9.01   TIMER                                                                 06/25/2018 15:28:32 PAGE 2   
+
+  54          /***********************************************************************/
+  55          
+  56          #define MAIN_TIME1_INIT (1000/100)
+  57          #define MAIN_TIME2_INIT (1000/8)
+  58          #define MAIN_TIME3_INIT (1000/2)
+  59          #define MAIN_TIME4_INIT (1000/1)
+  60          
+  61          static   int8u MainTime4En  = OFF;
+  62          
+  63          
+  64          /***********************************************************************/
+  65          // *功能：定时器2 控制主动发送模式的频率和时间周期
+  66          // *入口：
+  67          // *出口：
+  68          // *备注：
+  69          // *函数性质：
+  70          /***********************************************************************/
+  71          void Timer2_TaskInIsr (void)
+  72          {       
+  73   1              static int8u cnt100ms;          
+  74   1      
+  75   1              Comm_TimerProc();                                               // CommTimer=10 轮询COMM的时间周期
+  76   1              MainTime4Cnt--;                                                 //发送时间周期
+  77   1              if(MainTime4Cnt==0)
+  78   1              {
+  79   2                      MainTime4Cnt=SendSpeed[SendSpeedNum];  //发送时间周期
+  80   2                      MainTime4En=ON;                                            //发送使能
+  81   2                      /****** 主动发送频率bps设置***********/
+  82   2              }
+  83   1      
+  84   1              if(++cnt100ms==100)
+  85   1              {
+  86   2                      cnt100ms=0;
+  87   2              }
+  88   1      }
+  89          /***********************************************************************/
+  90          // *功能：主动发送模式 发送XY的角度
+  91          // *入口：MainTime4En SendActPosi
+  92          // *出口：
+  93          // *备注：
+  94          // *函数性质：
+  95          /***********************************************************************/
+  96          void Timer2_TaskInMain (void)
+  97          {       
+  98   1              if(MainTime4En==ON)
+  99   1              {       MainTime4En=OFF;
+ 100   2                      if(SendActPosi==0)
+ 101   2                      Sub_SendAngXY();                                   //主动发送模式 发送XY的角度
+ 102   2                      /******主动发送***********/
+ 103   2              }
+ 104   1      }
+ 105          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    179    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =      4    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      2    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+C51 COMPILER V9.01   TIMER                                                                 06/25/2018 15:28:32 PAGE 3   
+
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,384 @@
+C51 COMPILER V9.01   CALIBRATION                                                           06/25/2018 15:28:29 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE CALIBRATION
+OBJECT MODULE PLACED IN .\obj\Calibration.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE scr\Calibration.c OPTIMIZE(9,SIZE) BROWSE DEBUG OBJECTEXTEND PRINT(.\list\C
+                    -alibration.lst) OBJECT(.\obj\Calibration.obj)
+
+line level    source
+
+   1          /*--------------------------------文*件*信*息-----------------------------
+   2          * 文件名：  Calibration.c
+   3          * 版　本：  v1.0
+   4          * 描  述：  100T双轴 整合后的版本
+   5          * 创建人：   
+   6          * 日  期：   
+   7          --------------------------------------------------------------------------
+   8          *当前版本:      v1.0
+   9          *修 改 人:
+  10          *日　  期:
+  11          ----------------------------------修改履历--------------------------------
+  12          1、
+  13          2、
+  14          3、
+  15          4、
+  16          ------------------------------------------------------------------------*/
+  17          #define __CALIBR_C__
+  18          #include "_Include.h"
+  19          //struct temp_calib xdata Temp_Xcal;    //X轴温度补偿
+  20          //struct temp_calib xdata Temp_Ycal;    //Y轴温度补偿
+  21          
+  22          //struct ang_calib xdata Ang_Xcal;    //X轴角度校准
+  23          //struct ang_calib xdata Ang_Ycal;    //Y轴角度校准
+  24          
+  25          //static int16u xdata temp_buf[TEMP_CAL_NUM];    //21
+  26          
+  27          static float    Ang_RdXAVal(struct ang_calib *p_cal, int8u posid);
+  28          
+  29          
+  30          
+  31          //***********************************************************************/
+  32          // *功    能：设置角度标定点个数
+  33          // *入    口：p_cal,ang_calib结构体指针(X,Y);num,点数
+  34          // *出    口：
+  35          // *备    注：
+  36          // *函数性质：
+  37          //***********************************************************************/
+  38          static void Ang_SetCalCnt(struct ang_calib *p_cal, int8u num)
+  39          {
+  40   1          p_cal->calcnt=num;
+  41   1      }
+  42          //***********************************************************************/
+  43          // *功    能：读取角度标定模块中的角度值数组中的某个元素
+  44          // *入    口：p_cal,ang_calib结构体指针(X,Y);posid,位置ID号
+  45          // *出    口：角度值
+  46          // *备    注：保证位置ID在数组大小的范围内
+  47          // *函数性质：
+  48          //***********************************************************************/
+  49          static int32s   Ang_RdAngVal(struct ang_calib *p_cal, int8u posid)
+  50          {
+  51   1          return (p_cal->angarr[posid]);
+  52   1      }
+  53          
+  54          //***********************************************************************/
+C51 COMPILER V9.01   CALIBRATION                                                           06/25/2018 15:28:29 PAGE 2   
+
+  55          // *功    能：读取角度标定模块中的角度AD值数组中的某个元素
+  56          // *入    口：p_cal,ang_calib结构体指针(X,Y);posid,位置ID号
+  57          // *出    口：角度ADC值
+  58          // *备    注：保证位置ID在数组大小的范围内
+  59          // *函数性质：
+  60          //***********************************************************************/
+  61          static int16u   Ang_RdAdcVal(struct ang_calib *p_cal, int8u posid)
+  62          {
+  63   1          return (p_cal->adcarr[posid]);
+  64   1      }
+  65          //***********************************************************************/
+  66          // *功    能：设置角度标定模块中的角度值数组中的某个元素
+  67          // *入    口：p_cal,ang_calib结构体指针(X,Y);val,角度值;posid,位置ID号
+  68          // *出    口：
+  69          // *备    注：保证位置ID在数组大小的范围内
+  70          // *函数性质：
+  71          //***********************************************************************/
+  72          static void Ang_WrAngVal(struct ang_calib *p_cal,int32s val, int8u posid)
+  73          {
+  74   1          p_cal->angarr[posid]=val;
+  75   1      }
+  76          
+  77          //***********************************************************************/
+  78          // *功    能：设置角度标定模块中的角度AD值数组中的某个元素
+  79          // *入    口：p_cal,ang_calib结构体指针(X,Y);val,角度ADC值;posid,位置ID号
+  80          // *出    口：
+  81          // *备    注：保证位置ID在数组大小的范围内
+  82          // *函数性质：
+  83          //***********************************************************************/
+  84          static void Ang_WrAdcVal(struct ang_calib *p_cal,int16u val, int8u posid)
+  85          {
+  86   1          p_cal->adcarr[posid]=val;
+  87   1      }
+  88          
+  89          //***********************************************************************/
+  90          // *功    能：角度A,K参数计算
+  91          // *入    口：p_cal,ang_calib结构体指针(X,Y);
+  92          // *出    口：
+  93          // *备    注：K=(sin(ang1)-sin(ang0))/(adc1-adc0);A=sin(ang0)-K*adc0;
+  94          // *函数性质：
+  95          //***********************************************************************/
+  96          static void Ang_CalcPrm(struct ang_calib *p_cal)
+  97          {
+  98   1          float ang0;
+  99   1          float ang1;
+ 100   1      
+ 101   1          int8u i;
+ 102   1          for(i=0;i<(p_cal->calcnt-1);i++)
+ 103   1          {
+ 104   2              ang0=(PI*(p_cal->angarr[i]))/180000.0;    //角度换算成弧度
+ 105   2              ang1=(PI*(p_cal->angarr[i+1]))/180000.0;
+ 106   2              p_cal->prm_k[i] = (sin(ang1)-sin(ang0))/(int16s)(p_cal->adcarr[i+1]-p_cal->adcarr[i]);
+ 107   2              p_cal->prm_a[i] = sin(ang0)- p_cal->prm_k[i] * (p_cal->adcarr[i]);
+ 108   2          }
+ 109   1      }
+ 110          
+ 111          
+ 112          
+ 113          int8u GetAngXCalCnt(void)
+ 114          {
+ 115   1          return (Ang_Xcal.calcnt);    //获取X轴角度校准点个数
+ 116   1      }
+C51 COMPILER V9.01   CALIBRATION                                                           06/25/2018 15:28:29 PAGE 3   
+
+ 117          /*
+ 118          int8u GetTempYCalCnt(void)
+ 119          {
+ 120              return (Temp_Ycal.calcnt);    //获取Y轴温度补偿点个数 (没有用到注释起来）
+ 121          }
+ 122          */
+ 123          int8u GetAngYCalCnt(void)
+ 124          {
+ 125   1          return (Ang_Ycal.calcnt);    //获取Y轴角度校准点个数
+ 126   1      }
+ 127          
+ 128          
+ 129          //***********************************************************************/
+ 130          // *功    能：
+ 131          // *入    口：
+ 132          // *出    口：
+ 133          // *备    注：
+ 134          // *函数性质：
+ 135          //***********************************************************************/
+ 136          
+ 137          void SetAngXCalCnt(int8u cnt)
+ 138          {
+ 139   1           Ang_SetCalCnt(&Ang_Xcal,cnt);     //设置X轴角度校准点个数
+ 140   1      }
+ 141          
+ 142          
+ 143          
+ 144          void SetAngYCalCnt(int8u cnt)
+ 145          {
+ 146   1           Ang_SetCalCnt(&Ang_Ycal,cnt);    //设置Y轴角度校准点个数
+ 147   1      }
+ 148          
+ 149          
+ 150          
+ 151          void SetAngCalCnt(int8u cnt)         //设置角度校准点个数
+ 152          {
+ 153   1           SetAngXCalCnt(cnt);
+ 154   1           SetAngYCalCnt(cnt);
+ 155   1      }
+ 156          
+ 157          
+ 158          
+ 159          
+ 160          //***********************************************************************/
+ 161          // *功    能：读取角度标定模块中的X轴角度值数组中的某个元素
+ 162          // *入    口：pos,数组中的位置
+ 163          // *出    口：角度值
+ 164          // *备    注：保证位置ID在数组大小的范围内
+ 165          //***********************************************************************/
+ 166          int32s GetAngXCalAngVal(int8u pos)
+ 167          {
+ 168   1          return (Ang_RdAngVal(&Ang_Xcal,pos));
+ 169   1      }
+ 170          
+ 171          //***********************************************************************/
+ 172          // *功    能：读取角度标定模块中的Y轴角度值数组中的某个元素
+ 173          // *入    口：pos,数组中的位置
+ 174          // *出    口：角度值
+ 175          // *备    注：保证位置ID在数组大小的范围内
+ 176          //***********************************************************************/
+ 177          int32s GetAngYCalAngVal(int8u pos)
+ 178          {
+C51 COMPILER V9.01   CALIBRATION                                                           06/25/2018 15:28:29 PAGE 4   
+
+ 179   1          return (Ang_RdAngVal(&Ang_Ycal,pos));
+ 180   1      }
+ 181          
+ 182          
+ 183          //***********************************************************************/
+ 184          // *功    能：读角度标定模块中X轴ADC数组的某个元素
+ 185          // *入    口：pos,数组中的位置
+ 186          // *出    口：角度ADC值
+ 187          // *备    注：保证位置在数组的范围内
+ 188          //***********************************************************************/
+ 189          int16u GetAngXCalAdcVal(int8u pos)
+ 190          {
+ 191   1          return (Ang_RdAdcVal(&Ang_Xcal,pos));
+ 192   1      }
+ 193          //***********************************************************************/
+ 194          
+ 195          //***********************************************************************/
+ 196          // *功    能：读角度标定模块中Y轴ADC数组的某个元素
+ 197          // *入    口：pos,数组中的位置
+ 198          // *出    口：角度ADC值
+ 199          // *备    注：保证位置在数组的范围内
+ 200          //***********************************************************************/
+ 201          int16u GetAngYCalAdcVal(int8u pos)
+ 202          {
+ 203   1          return (Ang_RdAdcVal(&Ang_Ycal,pos));
+ 204   1      }
+ 205          
+ 206          
+ 207          
+ 208          
+ 209          
+ 210          
+ 211          //***********************************************************************/
+ 212          // *功    能：设置角度标定模块中的X轴角度值数组中的某个元素
+ 213          // *入    口：val,角度值;pos,位置
+ 214          // *出    口：
+ 215          // *备    注：保证位置ID在数组大小的范围内
+ 216          //***********************************************************************/
+ 217          void SetAngXCalAngVal(int32s val, int8u pos)
+ 218          {
+ 219   1          Ang_WrAngVal(&Ang_Xcal,val,pos);
+ 220   1      }
+ 221          
+ 222          //***********************************************************************/
+ 223          // *功    能：设置角度标定模块中的Y轴角度值数组中的某个元素
+ 224          // *入    口：val,角度值;pos,位置
+ 225          // *出    口：
+ 226          // *备    注：保证位置ID在数组大小的范围内
+ 227          //***********************************************************************/
+ 228          void SetAngYCalAngVal(int32s val, int8u pos)
+ 229          {
+ 230   1          Ang_WrAngVal(&Ang_Ycal,val,pos);
+ 231   1      }
+ 232          
+ 233          
+ 234          //***********************************************************************/
+ 235          // *功    能：设置角度标定模块中的X轴角度AD值数组中的某个元素
+ 236          // *入    口：val,角度ADC值;pos,位置
+ 237          // *出    口：
+ 238          // *备    注：保证位置在数组的范围内
+ 239          //***********************************************************************/
+ 240          void SetAngXCalAdcVal(int16u val, int8u pos)
+C51 COMPILER V9.01   CALIBRATION                                                           06/25/2018 15:28:29 PAGE 5   
+
+ 241          {
+ 242   1          Ang_WrAdcVal(&Ang_Xcal,val,pos);
+ 243   1      }
+ 244          
+ 245          //***********************************************************************/
+ 246          // *功    能：设置角度标定模块中的Y轴角度AD值数组中的某个元素
+ 247          // *入    口：val,角度ADC值;pos,位置
+ 248          // *出    口：
+ 249          // *备    注：保证位置在数组的范围内
+ 250          //***********************************************************************/
+ 251          void SetAngYCalAdcVal(int16u val, int8u pos)
+ 252          {
+ 253   1          Ang_WrAdcVal(&Ang_Ycal,val,pos);
+ 254   1      }
+ 255          
+ 256          
+ 257          
+ 258          
+ 259          //***********************************************************************/
+ 260          // *功    能：X轴角度标定参数计算
+ 261          // *备    注：
+ 262          //***********************************************************************/
+ 263          void    AngXCalcPrm(void)
+ 264          {
+ 265   1          Ang_CalcPrm(&Ang_Xcal);
+ 266   1      }
+ 267          //***********************************************************************/
+ 268          // *功    能：Y轴角度标定参数计算
+ 269          // *备    注：
+ 270          //***********************************************************************/
+ 271          void    AngYCalcPrm(void)
+ 272          {
+ 273   1          Ang_CalcPrm(&Ang_Ycal);
+ 274   1      }
+ 275          
+ 276          
+ 277          
+ 278          //***********************************************************************/
+ 279          // *功    能：角度标定默认数据初始化
+ 280          // *入    口：
+ 281          // *出    口：
+ 282          // *备    注：Flash 初始化的时候调用
+ 283          // *函数性质：
+ 284          //***********************************************************************/
+ 285          void AngCalDataInit()
+ 286          {
+ 287   1          int8u i;
+ 288   1          SetAngCalCnt(3);          //角度校准点个数
+ 289   1          for(i=0;i<ANG_CAL_NUM;i++)//角度
+ 290   1          {
+ 291   2              Ang_Xcal.angarr[i] = 2000*(i-ANG_CAL_NUM/2);
+ 292   2              Ang_Xcal.adcarr[i] = 500*(i-ANG_CAL_NUM/2)+8000;//2011-11-07 修改校准角度为三位小数
+ 293   2      
+ 294   2              Ang_Ycal.angarr[i] = 2000*(i-ANG_CAL_NUM/2);
+ 295   2              Ang_Ycal.adcarr[i] = 500*(i-ANG_CAL_NUM/2)+8000;
+ 296   2          }
+ 297   1          //----------------test-------------------
+ 298   1          Ang_Xcal.angarr[0]  =   -30000  ;
+ 299   1          Ang_Xcal.adcarr[0]  =   764     ;//2011-11-07 修改校准角度为三位小数
+ 300   1          Ang_Xcal.angarr[1]  =   0       ;
+ 301   1          Ang_Xcal.adcarr[1]  =   7907    ;
+ 302   1          Ang_Xcal.angarr[2]  =   30000   ;
+C51 COMPILER V9.01   CALIBRATION                                                           06/25/2018 15:28:29 PAGE 6   
+
+ 303   1          Ang_Xcal.adcarr[2]  =   14988   ;
+ 304   1      
+ 305   1          Ang_Ycal.angarr[0]  =   -30000  ;
+ 306   1          Ang_Ycal.adcarr[0]  =   744     ;
+ 307   1          Ang_Ycal.angarr[1]  =   0       ;
+ 308   1          Ang_Ycal.adcarr[1]  =   7979    ;
+ 309   1          Ang_Ycal.angarr[2]  =   30000   ;
+ 310   1          Ang_Ycal.adcarr[2]  =   15107   ;
+ 311   1          //-------------test-------------------      
+ 312   1      }
+ 313          //***********************************************************************/
+ 314          // *功    能：校准模块初始化
+ 315          // *入    口：
+ 316          // *出    口：
+ 317          // *备    注：
+ 318          // *函数性质：初始化函数指针
+ 319          //***********************************************************************/
+ 320          void    CalibInit(void)
+ 321          {
+ 322   1      //    Temp_Xcal.SetCalNum=SetTempXCalCnt;     //设置校准个数
+ 323   1      //    Temp_Xcal.RdTempVal=GetTempXCalTempVal;  //读设置数据
+ 324   1      //    Temp_Xcal.RdAdcVal=GetTempXCalAdcVal;    //读数据
+ 325   1      //    Temp_Xcal.WrTempVal=SetTempXCalTempVal;   //写数据
+ 326   1      //    Temp_Xcal.WrAdcVal=SetTempXCalAdcVal;     //写返回数据
+ 327   1      ////  Temp_Xcal.CalcPrm=TempXCalcPrm;           //计算参数A,K
+ 328   1      //
+ 329   1      //    Temp_Ycal.ptempval=temp_buf;            //温度补偿模块中温度AD值缓存数组
+ 330   1      //    Temp_Ycal.SetCalNum=SetTempYCalCnt;
+ 331   1      //    Temp_Ycal.RdTempVal=GetTempYCalTempVal;
+ 332   1      //    Temp_Ycal.RdAdcVal=GetTempYCalAdcVal;
+ 333   1      //    Temp_Ycal.WrTempVal=SetTempYCalTempVal;
+ 334   1      //    Temp_Ycal.WrAdcVal=SetTempYCalAdcVal;
+ 335   1      ////  Temp_Ycal.CalcPrm=TempYCalcPrm;
+ 336   1      
+ 337   1          Ang_Xcal.SetCalNum=SetAngXCalCnt;
+ 338   1          Ang_Xcal.RdAngVal=GetAngXCalAngVal;
+ 339   1          Ang_Xcal.RdAdcVal=GetAngXCalAdcVal;
+ 340   1          Ang_Xcal.WrAngVal=SetAngXCalAngVal;
+ 341   1          Ang_Xcal.WrAdcVal=SetAngXCalAdcVal;
+ 342   1      //  Ang_Xcal.CalcPrm=AngXCalcPrm;
+ 343   1      
+ 344   1          Ang_Ycal.SetCalNum=SetAngYCalCnt;
+ 345   1          Ang_Ycal.RdAngVal=GetAngYCalAngVal;
+ 346   1          Ang_Ycal.RdAdcVal=GetAngYCalAdcVal;
+ 347   1          Ang_Ycal.WrAngVal=SetAngYCalAngVal;
+ 348   1          Ang_Ycal.WrAdcVal=SetAngYCalAdcVal;
+ 349   1      //  Ang_Ycal.CalcPrm=AngYCalcPrm;
+ 350   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    844    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =    716    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----      36
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

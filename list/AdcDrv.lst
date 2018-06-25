@@ -1,0 +1,344 @@
+C51 COMPILER V9.01   ADCDRV                                                                06/25/2018 15:28:29 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE ADCDRV
+OBJECT MODULE PLACED IN .\obj\AdcDrv.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE scr\AdcDrv.c OPTIMIZE(9,SIZE) BROWSE DEBUG OBJECTEXTEND PRINT(.\list\AdcDrv
+                    -.lst) OBJECT(.\obj\AdcDrv.obj)
+
+line level    source
+
+   1          /*--------------------------------文*件*信*息-----------------------------
+   2          * 文件名：  AdcDrv.c
+   3          * 版　本：  v1.0
+   4          * 描  述：  100T双轴 整合后的版本
+   5          * 创建人：   
+   6          * 日  期：   
+   7          --------------------------------------------------------------------------
+   8          *当前版本:      v1.0
+   9          *修 改 人:
+  10          *日　  期:
+  11          ----------------------------------修改履历--------------------------------
+  12          1、
+  13          2、
+  14          3、
+  15          4、
+  16          ------------------------------------------------------------------------*/
+  17          #define  __ADC_DRV_C__
+  18          #include "_Include.h"
+  19          
+  20          /***********************************************/
+  21          struct adc_entity xdata x_axis_adc;
+  22          struct adc_entity xdata y_axis_adc;
+  23          struct adc_entity xdata temp_adc;
+  24          //struct adc_entity xdata vdd_adc;
+  25          /*****************************************************/
+  26          static int8u    code    PinIdTab[13] = {   2,   0,   1,   0,   1,   0,   1,   0,   1,   0,   1,   0,   1};
+  27          static int8u    code    PinMuxTab[]  = {0x0b,0x09,0x0a,0x09,0x0a,0x09,0x0a,0x09,0x0a,0x09,0x0a,0x09,0x0a};
+  28                                  //AD输入通道选择0x0a=P1.2,0x09=P1.1,0x30=temp,0x0b=Vdd
+  29          /*****************************************************/
+  30          int8u   idata   AdcSwitchId=0;
+  31          int8u   idata   AdcEndTag=0;
+  32          int8u   idata   AdcEndId;
+  33          
+  34          static void Adc_SetInit (void);
+  35          static void Adc_VrefInit (void);
+  36          static void Adc_IsrInit (void);
+  37          static void AdcEntityInit(void);
+  38          //***********************************************************************/
+  39          // *功    能：ADC初始化
+  40          // *入    口：
+  41          // *出    口：
+  42          // *备    注：
+  43          // *函数性质：
+  44          //***********************************************************************/
+  45          void Adc_Init (void)
+  46          {
+  47   1          Adc_SetInit();
+  48   1          Adc_VrefInit();
+  49   1          Adc_IsrInit();
+  50   1          AdcEntityInit();    //ADC实体初始化
+  51   1      }
+  52          //***********************************************************************/
+  53          void Adc_Enable (void)
+  54          {
+C51 COMPILER V9.01   ADCDRV                                                                06/25/2018 15:28:29 PAGE 2   
+
+  55   1          ADC0CN |= 0x10;     // enable ADC0      AD0EN = 1;
+  56   1      }
+  57          //***********************************************************************/
+  58          // *功    能：获取X轴ADC值
+  59          // *入    口：
+  60          // *出    口：X轴ADC值（窗口滤波后）
+  61          // *备    注：
+  62          // *函数性质：
+  63          //***********************************************************************/
+  64          int16u Adc_GetXVal(void)
+  65          {
+  66   1          return  (x_axis_adc.ftval);
+  67   1      }
+  68          //***********************************************************************/
+  69          // *功    能：获取Y轴ADC值
+  70          // *入    口：
+  71          // *出    口：Y轴ADC值（窗口滤波后）
+  72          // *备    注：
+  73          // *函数性质：
+  74          //***********************************************************************/
+  75          int16u Adc_GetYVal(void)
+  76          {
+  77   1          return  (y_axis_adc.ftval);
+  78   1      }
+  79          //***********************************************************************/
+  80          // *功    能：获取温度ADC值
+  81          // *入    口：
+  82          // *出    口：温度ADC值（窗口滤波后）
+  83          // *备    注：
+  84          // *函数性质：
+  85          //***********************************************************************/
+  86          int16u Adc_GetTemp(void)
+  87          {
+  88   1          return  (temp_adc.ftval);
+  89   1      }
+  90          //***********************************************************************/
+  91          // *功    能：
+  92          // *入    口：
+  93          // *出    口：
+  94          // *备    注：
+  95          // *函数性质：
+  96          //***********************************************************************/
+  97          /*
+  98          int16u Adc_GetVdd(void)
+  99          {
+ 100              return  (vdd_adc.ftval);
+ 101          }
+ 102          */
+ 103          //***********************************************************************/
+ 104          // *功    能：
+ 105          // *入    口：
+ 106          // *出    口：
+ 107          // *备    注：
+ 108          // *函数性质：
+ 109          //***********************************************************************/
+ 110          static void Adc_SetInit (void)
+ 111          {   int8u SfrPage_ = SFRPAGE;
+ 112   1      
+ 113   1      
+ 114   1          SFRPAGE = ACTIVE_PAGE;
+ 115   1          ADC0MX  = 0x0c;     //0x0c
+ 116   1          ADC0CF |= 0x01;     // Set GAINEN = 1
+C51 COMPILER V9.01   ADCDRV                                                                06/25/2018 15:28:29 PAGE 3   
+
+ 117   1          ADC0H   = 0x04;     // Load the ADC0GNH address
+ 118   1          ADC0L   = 0xFC;     // Load the upper byte of 0x6CA to
+ 119   1          ADC0H   = 0x07;     // Load the ADC0GNL address
+ 120   1          ADC0L   = 0x00;     // Load the lower nibble of 0x6CA to
+ 121   1          ADC0H   = 0x08;     // Load the ADC0GNA address
+ 122   1          ADC0L   = 0x01;     // Set the GAINADD bit
+ 123   1          ADC0CF &= ~0x01;    // Set GAINEN = 0
+ 124   1          ADC0CN  = 0x80;     // ADC0 disabled, normal tracking,
+ 125   1          REF0CN  = 0x00;     // Enable on-chip VREF and buffer
+ 126   1          ADC0MX  = 0x09;     // Set ADC input to P1.2
+ 127   1          ADC0CF  = ((SYSCLK / 3000000) - 1) << 3;    // Set SAR clock to 3MHz
+ 128   1          SFRPAGE = SfrPage_;
+ 129   1      }
+ 130          //***********************************************************************/
+ 131          static void Adc_VrefInit (void)
+ 132          {
+ 133   1          REF0CN    = 0x37;       // Enable on-chip VREF = 2.2v and buffer    ok
+ 134   1      }
+ 135          //***********************************************************************/
+ 136          static void Adc_IsrInit (void)
+ 137          {
+ 138   1          EIE1 |= 0x04;           // Enable ADC0 conversion complete int.
+ 139   1      }
+ 140          
+ 141          //***********************************************************************/
+ 142          // *功    能：ADC值滤波
+ 143          // *入    口：p_adc,ADC结构体指针（X,Y,Temp);val,新值
+ 144          // *出    口：
+ 145          // *备    注：为了提高响应速度，进行限幅滤波   ADC值底层滤波供X/Y/T的函数调用
+ 146          // *函数性质：
+ 147          //***********************************************************************/
+ 148          static void AdcFilter (struct adc_entity *p_adc, int16u val)
+ 149          {
+ 150   1          if(ValInRange(p_adc->ftval,val,(int16u)FILTER_NUM))                     //限幅滤波
+ 151   1          {
+ 152   2              p_adc->ftval=SlideWinFilter (&(p_adc->arrpt),&(p_adc->arrcnt),
+ 153   2                                           p_adc->valarr,val,(int16u)FILTER_NUM); //窗口滤波
+ 154   2          }
+ 155   1          else
+ 156   1          {
+ 157   2                  p_adc->ftval=val;                                               //幅度变化大，直接使用当前值
+ 158   2                  p_adc->arrcnt=0;                                                //重新写数组
+ 159   2          }
+ 160   1      }
+ 161          //***********************************************************************/
+ 162          // *功    能：X轴ADC滤波函数
+ 163          // *入    口：adcval，X轴的ADC值
+ 164          // *出    口：
+ 165          // *备    注：滤波之后的值直接写入x_axis_adc.ftval中
+ 166          // *函数性质：
+ 167          //***********************************************************************/
+ 168          /*void  XAdcFilter(int16u adcval)
+ 169          {
+ 170              AdcFilter(&x_axis_adc,adcval);
+ 171          }
+ 172          */
+ 173          //***********************************************************************/
+ 174          // *功    能：Y轴ADC滤波函数
+ 175          // *入    口：adcval，Y轴的ADC值
+ 176          // *出    口：
+ 177          // *备    注：滤波之后的值直接写入y_axis_adc.ftval中
+ 178          // *函数性质：
+C51 COMPILER V9.01   ADCDRV                                                                06/25/2018 15:28:29 PAGE 4   
+
+ 179          //***********************************************************************/
+ 180          /*void  YAdcFilter(int16u adcval)
+ 181          {
+ 182              AdcFilter(&y_axis_adc,adcval);
+ 183          }
+ 184           */
+ 185          //***********************************************************************/
+ 186          // *功    能：温度ADC滤波函数
+ 187          // *入    口：adcval，温度的ADC值
+ 188          // *出    口：
+ 189          // *备    注：滤波之后的值直接写入temp_adc.ftval中
+ 190          // *函数性质：
+ 191          //***********************************************************************/
+ 192          /*void  TAdcFilter(int16u adcval)
+ 193          {
+ 194              AdcFilter(&temp_adc,adcval);
+ 195          }
+ 196          */
+ 197          
+ 198          //***********************************************************************/
+ 199          // *功    能：
+ 200          // *入    口：
+ 201          // *出    口：
+ 202          // *备    注：
+ 203          // *函数性质：
+ 204          //***********************************************************************/
+ 205          /*
+ 206          void    VAdcFilter(int16u adcval)
+ 207          {
+ 208              AdcFilter(&vdd_adc,adcval);
+ 209          }
+ 210          */
+ 211          //***********************************************************************/
+ 212          // *功    能：ADC实体初始化
+ 213          // *入    口：
+ 214          // *出    口：
+ 215          // *备    注：
+ 216          // *函数性质：
+ 217          //***********************************************************************/
+ 218          static void AdcEntityInit(void)
+ 219          {
+ 220   1          //---------X轴
+ 221   1          x_axis_adc.num=0;                 //ADC虚拟端口号
+ 222   1          x_axis_adc.arrpt=0;               //ADC缓存数组位置指针
+ 223   1          x_axis_adc.arrcnt=0;              //元素个数为0
+ 224   1          x_axis_adc.ftval=0;               //ADC滤波之后的值
+ 225   1      //  x_axis_adc.Filter=XAdcFilter;     //滤波函数指针初始化
+ 226   1          x_axis_adc.next=&y_axis_adc;      //ADC结构体链表初始化
+ 227   1          //---------Y轴
+ 228   1          y_axis_adc.num=1;
+ 229   1          y_axis_adc.arrpt=0;
+ 230   1          y_axis_adc.arrcnt=0;              //元素个数为0
+ 231   1          y_axis_adc.ftval=0;
+ 232   1      //  y_axis_adc.Filter=YAdcFilter;
+ 233   1          y_axis_adc.next=&temp_adc;
+ 234   1          //------------温度
+ 235   1          temp_adc.num=2;
+ 236   1          temp_adc.arrpt=0;
+ 237   1          temp_adc.arrcnt=0;                //元素个数为0
+ 238   1          temp_adc.ftval=0;
+ 239   1      //  temp_adc.Filter=TAdcFilter;
+ 240   1          temp_adc.next=(struct adc_entity *)0;  //链表结束
+C51 COMPILER V9.01   ADCDRV                                                                06/25/2018 15:28:29 PAGE 5   
+
+ 241   1      /*
+ 242   1          vdd_adc.num=3;
+ 243   1          vdd_adc.arrpt=0;
+ 244   1          vdd_adc.ftval=0;
+ 245   1          vdd_adc.Filter=VAdcFilter;
+ 246   1          vdd_adc.next=(struct adc_entity *)0;
+ 247   1      */
+ 248   1      }
+ 249          /*
+ 250          void Adc_Init(struct adc_entity *adc_ent, int8u adc_num)
+ 251          {
+ 252              adc_ent->num=adc_num;
+ 253              adc_ent->arrpt=0;
+ 254              adc_ent->ftval=0;
+ 255          }
+ 256          */
+ 257          //***********************************************************************/
+ 258          // *功    能：ADC值的保存和采集端口选择
+ 259          // *入    口：
+ 260          // *出    口：
+ 261          // *备    注：
+ 262          // *函数性质：
+ 263          //***********************************************************************/
+ 264          static void Adc_SaveAndSwitch (int16u val)
+ 265          {
+ 266   1          struct adc_entity *adc_ent;
+ 267   1          adc_ent=&x_axis_adc;                            //指向ADC结构体链表的起始元素
+ 268   1         if(PinIdTab[AdcSwitchId]==0)
+ 269   1                val=65536-val;                                                                //2013520xinglong  修正轴向
+ 270   1              
+ 271   1          while(adc_ent!=(struct adc_entity *)0)          //搜索链表
+ 272   1          {
+ 273   2              if(adc_ent->num==PinIdTab[AdcSwitchId])     //比较端口号
+ 274   2                  break;                                  //相等
+ 275   2              adc_ent=adc_ent->next;                      //不相等，比较下一个元素
+ 276   2          }
+ 277   1          if(adc_ent!=(struct adc_entity *)0)             //搜索的元素在链表中
+ 278   1      //      adc_ent->Filter(val);                       //滤波
+ 279   1              AdcFilter(adc_ent,val);
+ 280   1      
+ 281   1          AdcEndId=PinIdTab[AdcSwitchId];                 //保存端口号
+ 282   1          AdcSwitchId++;                                  //取表中下一端口号
+ 283   1      
+ 284   1          if(13==AdcSwitchId)AdcSwitchId=0;
+ 285   1          ADC0MX=PinMuxTab[AdcSwitchId];
+ 286   1          AdcEndTag=1;
+ 287   1      }
+ 288          //***********************************************************************/
+ 289          // *功    能：AD中断处理
+ 290          // *入    口：
+ 291          // *出    口：
+ 292          // *备    注：
+ 293          // *函数性质：
+ 294          //***********************************************************************/
+ 295          void Adc_Isr (void) interrupt INTERRUPT_ADC0_EOC//9
+ 296          {
+ 297   1          static xdata int16u sum = 0;
+ 298   1          static xdata int8u cnt = 0;
+ 299   1      
+ 300   1          AD0INT=0;                                    // clear ADC0 conv. complete flag
+ 301   1          sum+=ADC0;
+ 302   1          if(++cnt==SUM_CNT)
+C51 COMPILER V9.01   ADCDRV                                                                06/25/2018 15:28:29 PAGE 6   
+
+ 303   1          {
+ 304   2              Adc_SaveAndSwitch(sum/SUM_CNT1);
+ 305   2              sum=0;
+ 306   2              cnt=0;
+ 307   2          }
+ 308   1          else
+ 309   1              ADC0CN |= 0x10;
+ 310   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    531    ----
+   CONSTANT SIZE    =     26    ----
+   XDATA SIZE       =    411    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----       8
+   IDATA SIZE       =      3    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

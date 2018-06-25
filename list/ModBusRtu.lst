@@ -1,0 +1,735 @@
+C51 COMPILER V9.01   MODBUSRTU                                                             06/25/2018 15:28:31 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE MODBUSRTU
+OBJECT MODULE PLACED IN .\obj\ModBusRtu.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE scr\ModBusRtu.c OPTIMIZE(9,SIZE) BROWSE DEBUG OBJECTEXTEND PRINT(.\list\Mod
+                    -BusRtu.lst) OBJECT(.\obj\ModBusRtu.obj)
+
+line level    source
+
+   1          /*--------------------------------文*件*信*息-----------------------------
+   2          * 文件名：  ModBusRtu.c
+   3          * 版　本：  v1.0
+   4          * 描  述：  100T双轴 整合后的版本
+   5          * 创建人：  
+   6          * 日  期：  
+   7          --------------------------------------------------------------------------
+   8          *当前版本:      v1.0
+   9          *修 改 人:
+  10          *日　  期:
+  11          ----------------------------------修改履历--------------------------------
+  12          1、
+  13          2、
+  14          3、
+  15          4、
+  16          ------------------------------------------------------------------------*/
+  17          #define   __MODBUSRTU_C__
+  18          #include  "_Include.h"
+  19          //***********************************************************************/
+  20          #if MODBUS_CHECK_ENB==1
+  21          static void ModRtu_RlyError (int8u* buf,int8u excode);
+  22          static void ModRtu_WrReg (int8u* buf,int8u n);
+  23          static void ModRtu_RdReg (int8u* buf);
+  24          static int8u xdata udflashtag=0;
+  25          
+  26          //***********************************************************************/
+  27          static  int16u  FloatToInt( float ang, int16u highlow )
+  28          {
+  29   1          int32u  temp ;
+  30   1          int16u  vol ;
+  31   1      
+  32   1          ang /= 1000.0 ;
+  33   1          temp = *( int32u* )&ang ;
+  34   1      
+  35   1          if( highlow == 'L' )
+  36   1          {
+  37   2              vol  = ( ( temp << 24 ) >> 24 ) << 8 ;
+  38   2              vol += ( ( temp << 16 ) >> 24 ) << 0 ;
+  39   2          }
+  40   1          else
+  41   1          {
+  42   2              vol  = ( ( temp <<  8 ) >> 24 ) << 8 ;
+  43   2              vol += ( ( temp <<  0 ) >> 24 ) << 0 ;
+  44   2          }
+  45   1          return( vol ) ;
+  46   1      }
+  47          //***********************************************************************/
+  48          // *功    能：计算校验码
+  49          // *入    口：
+  50          // *出    口：
+  51          // *备    注：
+  52          // *函数性质：
+  53          //***********************************************************************/
+  54          int8u ModRtu_ChkCrc (int8u *buf,int8u len)
+C51 COMPILER V9.01   MODBUSRTU                                                             06/25/2018 15:28:31 PAGE 2   
+
+  55          {
+  56   1          if(len<3)
+  57   1          {   
+  58   2                      return(FALSE);
+  59   2          }
+  60   1          if( ModbusCrcCnt(buf, len) == 0 )           //数据和CRC验证码重新CRC计算后为0 
+  61   1          {   
+  62   2                      return(TRUE);
+  63   2          }
+  64   1          else
+  65   1          {   
+  66   2                      return(FALSE);
+  67   2          }
+  68   1      }
+  69          //***********************************************************************/
+  70          // *功    能：存储校验码
+  71          // *入    口：
+  72          // *出    口：
+  73          // *备    注：
+  74          // *函数性质：
+  75          //***********************************************************************/
+  76          void ModRtu_WrCrc (int8u* buf,int16u crc)
+  77          {
+  78   1          buf[0] = crc>>8;                            //HIGH 8BIT 
+  79   1          buf[1] = crc;                                       //LOW 8BIT
+  80   1      }
+  81          //***********************************************************************/
+  82          // *功    能：数据转换
+  83          // *入    口：
+  84          // *出    口：
+  85          // *备    注：
+  86          // *函数性质：
+  87          //***********************************************************************/
+  88          int16u  ModRtu_8to16 (int8u* buf)
+  89          {
+  90   1          int16u temp;
+  91   1      
+  92   1          temp = buf[0];
+  93   1          temp <<= 8;
+  94   1          temp |= buf[1];
+  95   1          return(temp);                        //用户接口部分是大端模式
+  96   1      }
+  97          //***********************************************************************/
+  98          // *功    能：零点设置
+  99          // *入    口：
+ 100          // *出    口：
+ 101          // *备    注：
+ 102          // *函数性质：
+ 103          //***********************************************************************/
+ 104          void ModRtu_SetZero (int8u* buf)
+ 105          {   int16u temp;
+ 106   1          temp = ModRtu_8to16(buf);
+ 107   1      
+ 108   1          if(1 == temp)
+ 109   1          {
+ 110   2              SetAngXUsrZero(GetAngXRelSys());   //  设置X轴用户置零参数(获取X轴相对角度值内部)
+ 111   2              SetAngYUsrZero(GetAngYRelSys());    
+ 112   2          }
+ 113   1          else if(0 == temp)
+ 114   1          {
+ 115   2              SetAngXUsrZero(0);
+ 116   2              SetAngYUsrZero(0);                      
+C51 COMPILER V9.01   MODBUSRTU                                                             06/25/2018 15:28:31 PAGE 3   
+
+ 117   2          }
+ 118   1      }
+ 119          //***********************************************************************/
+ 120          // *功    能：修改寄存器的值
+ 121          // *入    口：
+ 122          // *出    口：
+ 123          // *备    注：
+ 124          // *函数性质：大端模式下 指数据的高位，保存在内存的低地址
+ 125          //***********************************************************************/
+ 126          int32s ModRtu_Wr16u (int8u* buf)//int32s* dat)
+ 127          {
+ 128   1          int16s temp;
+ 129   1          int32s dat;                
+ 130   1      
+ 131   1          temp = buf[0];
+ 132   1          temp <<= 8;
+ 133   1          temp |= buf[1];
+ 134   1          dat = (int32s)temp*10;
+ 135   1          return dat;               
+ 136   1      }
+ 137          //***********************************************************************/
+ 138          // *功    能：修改本机地址
+ 139          // *入    口：
+ 140          // *出    口：
+ 141          // *备    注：
+ 142          // *函数性质：
+ 143          //***********************************************************************/
+ 144          int8u ModRtu_WrAddr (int8u* buf)
+ 145          {
+ 146   1          int16u temp;
+ 147   1      
+ 148   1          temp = buf[0];
+ 149   1          temp <<= 8;
+ 150   1          temp |= buf[1];
+ 151   1          if((temp < 1) || (temp > 247)) return (FALSE);
+ 152   1          Addr = temp;
+ 153   1          return(TRUE);
+ 154   1      }
+ 155          //***********************************************************************/
+ 156          // *功    能：修改波特率
+ 157          // *入    口：
+ 158          // *出    口：
+ 159          // *备    注：
+ 160          // *函数性质：
+ 161          //***********************************************************************/
+ 162          int8u ModRtu_WrBaud (int8u* buf)
+ 163          {
+ 164   1          int16u temp;
+ 165   1      
+ 166   1          temp = buf[0];
+ 167   1          temp <<= 8;
+ 168   1          temp |= buf[1];
+ 169   1          if((temp < 0) || (temp > 8)) return (FALSE);//
+ 170   1          Braud_Num = temp;
+ 171   1          return(TRUE);
+ 172   1      }
+ 173          //***********************************************************************/
+ 174          // *功    能：
+ 175          // *入    口：
+ 176          // *出    口：
+ 177          // *备    注：
+ 178          // *函数性质：
+C51 COMPILER V9.01   MODBUSRTU                                                             06/25/2018 15:28:31 PAGE 4   
+
+ 179          //***********************************************************************/
+ 180          //int8u ModRtu_WrVal (int16u addr, int8u* buf)
+ 181          int8u ModRtu_WrVal (int16u addr, int8u* buf,int8u* excode)
+ 182          {
+ 183   1          static  xdata int32u  vol32u ;
+ 184   1          static  xdata int8u  vol8u ;
+ 185   1          float   xdata volf ;
+ 186   1          int16u  xdata pc_data ;
+ 187   1          int16s  xdata vol16s ;
+ 188   1      
+ 189   1          pc_data = buf[1] * 256 + buf[0] ;  
+ 190   1          switch(addr)
+ 191   1          {
+ 192   2              case ANGX_OFFSET_ADDR:      SetAngXInst(ModRtu_Wr16u(buf));             //写入X轴安装角度
+ 193   2                                                                          udflashtag = 1;
+ 194   2                                          break;
+ 195   2              case ANGY_OFFSET_ADDR:      SetAngYInst(ModRtu_Wr16u(buf));             //写入Y轴安装角度
+ 196   2                                                                              udflashtag = 1;
+ 197   2                                          break;        //
+ 198   2              case ZERO_ADDR:             ModRtu_SetZero(buf);                        //零点设置值
+ 199   2                                                                              udflashtag = 1;
+ 200   2                                          break;
+ 201   2              case SELF_ADDR:             
+ 202   2                                                                              udflashtag = 1;
+ 203   2                                                                              return (ModRtu_WrAddr(buf));                            //修改终端机地址
+ 204   2              case BAUD_ADDR:             
+ 205   2                                                                              udflashtag = 1;
+ 206   2                                                                              return (ModRtu_WrBaud(buf));                            //修改波特率
+ 207   2       //***********************************************
+ 208   2      {
+ 209   3          {
+ 210   4          
+ 211   4              case 0x011F:
+ 212   4              {
+ 213   5                  vol32u += pc_data * 65536 ;
+ 214   5                  if( vol32u == 0xAC35AC35 )
+ 215   5                  {
+ 216   6                      SetAngXUsrZero(GetAngXRelSys());   
+ 217   6                  }
+ 218   5                  else if( vol32u == 0x03050305 )
+ 219   5                  {
+ 220   6                      SetAngXUsrZero(0);
+ 221   6                  }
+ 222   5              }break ;
+ 223   4              case 0x0121:
+ 224   4              {
+ 225   5                  vol32u += pc_data * 65536 ;
+ 226   5                  if( vol32u == 0xAC35AC35 )
+ 227   5                  {
+ 228   6                      SetAngYUsrZero(GetAngYRelSys());   
+ 229   6                  }
+ 230   5                  else if( vol32u == 0x03050305 )
+ 231   5                  {
+ 232   6                      SetAngYUsrZero(0);
+ 233   6                  }
+ 234   5              }break ;
+ 235   4              case 0x0123:
+ 236   4              {
+ 237   5                  vol32u += pc_data * 65536 ;
+ 238   5                  volf = *(float*)&vol32u ;
+ 239   5                  SetAngXInst(volf * 1000);
+ 240   5              }break ;
+C51 COMPILER V9.01   MODBUSRTU                                                             06/25/2018 15:28:31 PAGE 5   
+
+ 241   4              case 0x0125:
+ 242   4              {
+ 243   5                  vol32u += pc_data * 65536 ;
+ 244   5                  volf = *(float*)&vol32u ;
+ 245   5                  SetAngYInst(volf * 1000);
+ 246   5      
+ 247   5              }break ;
+ 248   4              case 0x0128:SetFilterCnt(buf[1]); break ;
+ 249   4              case 0x0129:Addr = buf[1] ; break ;
+ 250   4                      case 0x012B:
+ 251   4              {       
+ 252   5                  if( buf[1] == 0xAC )
+ 253   5                  {
+ 254   6                      Flash_UserDataUpdate();
+ 255   6                  }
+ 256   5              }break ;
+ 257   4      
+ 258   4              //***********************************************************
+ 259   4              case 0xA800:
+ 260   4              case 0xA801:
+ 261   4              case 0xA802:
+ 262   4              case 0xA803:
+ 263   4              case 0xA804:
+ 264   4              case 0xA805:
+ 265   4              case 0xA806:
+ 266   4              case 0xA807:
+ 267   4              {
+ 268   5                  SystemVer[(addr-0xA800)*2+0] = buf[0] ;
+ 269   5                  SystemVer[(addr-0xA800)*2+1] = buf[1] ;
+ 270   5              }break ;
+ 271   4              case 0xA808:
+ 272   4              {
+ 273   5                  vol8u = buf[0] ; // 'X' 'Y'
+ 274   5                  pc_data = buf[1] ;
+ 275   5                  AngRange = pc_data ;                         //测量范围
+ 276   5                  switch( pc_data )
+ 277   5                  {
+ 278   6                      case   5: SetAngCalCnt(3) ;  break ;
+ 279   6                      case  10: SetAngCalCnt(5) ;  break ;
+ 280   6                      case  15: SetAngCalCnt(7) ;  break ;
+ 281   6                      case  30: SetAngCalCnt(7) ;  break ;
+ 282   6                      case  45: SetAngCalCnt(7) ;  break ;
+ 283   6                      case  60: SetAngCalCnt(9) ;  break ;
+ 284   6                      case  90: SetAngCalCnt(13);  break ;
+ 285   6       //               default : SetAngCalCnt(3) ;  break ;
+ 286   6                                      default : *excode=3;  return(FALSE);
+ 287   6                  }
+ 288   5              }break ;
+ 289   4              //***********************************************
+ 290   4              case 0xA80A:
+ 291   4              {
+ 292   5                  vol32u += pc_data * 65536 ;
+ 293   5                  volf = *(float*)&vol32u ;
+ 294   5                  if( volf > 0 )
+ 295   5                  {
+ 296   6                      vol16s = (int16s)volf + 2 ;
+ 297   6                  }
+ 298   5                  else
+ 299   5                  {
+ 300   6                      vol16s = (int16s)volf - 2 ;
+ 301   6                  }
+ 302   5                  if( AngRange < 30 )
+C51 COMPILER V9.01   MODBUSRTU                                                             06/25/2018 15:28:31 PAGE 6   
+
+ 303   5                  {
+ 304   6                      vol16s = ( int16s )( vol16s / 5 ) ;
+ 305   6                      pc_data = vol16s + (GetAngXCalCnt() / 2) ;   //獲取角度校準點個數  
+ 306   6                  }
+ 307   5                  else if( AngRange == 30 )
+ 308   5                  {
+ 309   6                      vol16s = ( int16s )( vol16s / 5 ) * 5 ;
+ 310   6                      switch( vol16s )
+ 311   6                      {
+ 312   7                          case -30 : pc_data = 0 ; break ;
+ 313   7                          case -15 : pc_data = 1 ; break ;
+ 314   7                          case  -5 : pc_data = 2 ; break ;
+ 315   7                          case   0 : pc_data = 3 ; break ;
+ 316   7                          case   5 : pc_data = 4 ; break ;
+ 317   7                          case  15 : pc_data = 5 ; break ;
+ 318   7                          case  30 : pc_data = 6 ; break ;
+ 319   7                                              default  : *excode=3;  return(FALSE);
+ 320   7                      }
+ 321   6                  }
+ 322   5                  else 
+ 323   5                  {
+ 324   6                      vol16s = ( int16s )( vol16s / 15 ) ;
+ 325   6                      pc_data = vol16s + (GetAngXCalCnt() / 2) ;   // 獲取角度校準點個數  
+ 326   6      
+ 327   6                  }
+ 328   5                  if( vol8u == 'X' )
+ 329   5                  {
+ 330   6                    SetAngXCalAngVal(volf * 1000,pc_data);
+ 331   6                    SetAngXCalAdcVal(GetXFtVal(),pc_data);              
+ 332   6                  }
+ 333   5                  else
+ 334   5                  {
+ 335   6                      SetAngYCalAngVal(volf * 1000,pc_data );           
+ 336   6                      SetAngYCalAdcVal(GetYFtVal(),pc_data);            
+ 337   6      
+ 338   6                  }
+ 339   5              }break ;
+ 340   4              case 0xA80B:
+ 341   4              {
+ 342   5                  pc_data = buf[0] * 256 + buf[1] ;
+ 343   5                  if( pc_data == 0x0305 )
+ 344   5                  {
+ 345   6                      Flash_CalDataUpdate() ;
+ 346   6                  }
+ 347   5              }break ;
+ 348   4              case 0xA80E:
+ 349   4              {
+ 350   5                  pc_data = buf[0] * 256 + buf[1] ;
+ 351   5                  switch( pc_data )
+ 352   5                  {
+ 353   6                      case 0xA501:SetAngXSysZero(GetXAng());
+ 354   6                                  SetAngYSysZero(GetYAng());
+ 355   6                                  break ;                       
+ 356   6                      case 0xA502:SetAngXSysZero(0);
+ 357   6                                  SetAngYSysZero(0);
+ 358   6                                  break ;                       
+ 359   6                      case 0xA503:SetAngXUsrZero(GetAngXRelSys());
+ 360   6                                  SetAngYUsrZero(GetAngYRelSys());
+ 361   6                                  break ;
+ 362   6                      case 0xA504:SetAngXUsrZero(0) ;
+ 363   6                                  SetAngYUsrZero(0) ;
+ 364   6                                  break ;
+C51 COMPILER V9.01   MODBUSRTU                                                             06/25/2018 15:28:31 PAGE 7   
+
+ 365   6                  }
+ 366   5              }break ;
+ 367   4              case 0xA810:
+ 368   4              {
+ 369   5                  vol32u += pc_data * 65536 ;
+ 370   5                  volf = *(float*)&vol32u ;
+ 371   5                  SetAngXInst(volf * 1000);
+ 372   5              }break ;
+ 373   4              case 0xA812:
+ 374   4              {
+ 375   5                  vol32u += pc_data * 65536 ;
+ 376   5                  volf = *(float*)&vol32u ;
+ 377   5                  SetAngYInst(volf * 1000);         
+ 378   5              }break ;
+ 379   4              case 0xA81B:
+ 380   4              {
+ 381   5                  pc_data = buf[0] * 256 + buf[1] ;
+ 382   5                  SendSpeedNum = pc_data ;
+ 383   5              }break ;
+ 384   4              case 0xA81C:
+ 385   4              {
+ 386   5                  pc_data = buf[0] * 256 + buf[1] ;
+ 387   5                  SetFilterCnt(pc_data);
+ 388   5              }break ;        
+ 389   4              
+ 390   4          }
+ 391   3      }
+ 392   2       //       default:return(FALSE);
+ 393   2              default:        *excode=02;
+ 394   2                                              return(FALSE);
+ 395   2          }
+ 396   1          return(TRUE);
+ 397   1      }
+ 398          //***********************************************************************/
+ 399          // *功    能：
+ 400          // *入    口：
+ 401          // *出    口：
+ 402          // *备    注：
+ 403          // *函数性质：
+ 404          //***********************************************************************/
+ 405          void ModRtu_Rd16u (int8u* buf,int16s dat)
+ 406          {
+ 407   1          buf[0] = MR_READ_REGH(dat);
+ 408   1          buf[1] = MR_READ_REGL(dat);
+ 409   1      }
+ 410          //***********************************************************************/
+ 411          // *功    能：读寄存器
+ 412          // *入    口：
+ 413          // *出    口：
+ 414          // *备    注：
+ 415          // *函数性质：
+ 416          //***********************************************************************/
+ 417          int8u ModRtu_RdVal (int16u addr,int8u* buf,int8u* excode)
+ 418          {
+ 419   1      
+ 420   1          int16u  xdata pc_data ;
+ 421   1          int16s  xdata vol16s ;
+ 422   1          switch(addr)
+ 423   1          {
+ 424   2      
+ 425   2              case ANGX_ADDR:         vol16s = (GetXAngAllSetVal()/10) ; pc_data = *(int16u*)&vol16s ; break ;  
+             -  //获取最终的角度
+C51 COMPILER V9.01   MODBUSRTU                                                             06/25/2018 15:28:31 PAGE 8   
+
+ 426   2              case ANGY_ADDR:         vol16s = (GetYAngAllSetVal()/10) ; pc_data = *(int16u*)&vol16s ; break ;  
+             -  //HXL 12/8/27 整合更新
+ 427   2      
+ 428   2              case ANGP_ADDR:         vol16s = (GetAngP()/10)           ; pc_data = *(int16u*)&vol16s ; break ; 
+             -   //HXL 12/8/27 整合更新
+ 429   2      
+ 430   2              case ANGX_OFFSET_ADDR:  vol16s = (GetAngXInst()/10)       ; pc_data = *(int16u*)&vol16s ; break ;
+ 431   2              case ANGY_OFFSET_ADDR:  vol16s = (GetAngYInst()/10)       ; pc_data = *(int16u*)&vol16s ; break ; 
+             - //HXL 12/8/26 整合更新
+ 432   2              case SELF_ADDR:         vol16s = Addr                     ; pc_data = *(int16u*)&vol16s ; break ;
+ 433   2              case BAUD_ADDR:         vol16s = Braud_Num                ; pc_data = *(int16u*)&vol16s ; break ;
+ 434   2       //**************************************
+ 435   2      {
+ 436   3          {
+ 437   4              case 0x0100 : pc_data = SystemVer[ 0] *256 + SystemVer[ 1]       ; break ;
+ 438   4              case 0x0101 : pc_data = SystemVer[ 2] *256 + SystemVer[ 3]       ; break ;
+ 439   4              case 0x0102 : pc_data = SystemVer[ 4] *256 + SystemVer[ 5]       ; break ;
+ 440   4              case 0x0103 : pc_data = SystemVer[ 6] *256 + SystemVer[ 7]       ; break ;
+ 441   4              case 0x0104 : pc_data = SystemVer[ 8] *256 + SystemVer[ 9]       ; break ;
+ 442   4              case 0x0105 : pc_data = SystemVer[10] *256 + SystemVer[11]       ; break ;
+ 443   4              case 0x0106 : pc_data = SystemVer[12] *256 + SystemVer[13]       ; break ;
+ 444   4              case 0x0107 : pc_data = SystemVer[14] *256 + SystemVer[15]       ; break ;
+ 445   4              case 0x0108 : pc_data = FloatToInt( GetXAngAllSetVal() ,'L' )    ; break ;
+ 446   4              case 0x0109 : pc_data = FloatToInt( GetXAngAllSetVal() ,'H' )    ; break ;
+ 447   4              case 0x010A : pc_data = FloatToInt( GetYAngAllSetVal() ,'L' )    ; break ;
+ 448   4              case 0x010B : pc_data = FloatToInt( GetYAngAllSetVal() ,'H' )    ; break ;
+ 449   4              case 0x010C : pc_data = FloatToInt( GetAngP(), 'L' )             ; break ;
+ 450   4              case 0x010D : pc_data = FloatToInt( GetAngP(), 'H' )             ; break ;
+ 451   4              case 0x010E : pc_data = 0                                        ; break ;
+ 452   4              case 0x010F : pc_data = 0                                        ; break ;
+ 453   4              case 0x0110 : pc_data = 0                                        ; break ;
+ 454   4              case 0x011E : pc_data = FloatToInt( GetAngXUsrZero()    , 'L' )  ; break ;
+ 455   4              case 0x011F : pc_data = FloatToInt( GetAngXUsrZero()    , 'H' )  ; break ;
+ 456   4              case 0x0120 : pc_data = FloatToInt( GetAngYUsrZero()    , 'L' )  ; break ;
+ 457   4              case 0x0121 : pc_data = FloatToInt( GetAngYUsrZero()    , 'H' )  ; break ;
+ 458   4              case 0x0122 : pc_data = FloatToInt( GetAngXInst(), 'L' )         ; break ;
+ 459   4              case 0x0123 : pc_data = FloatToInt( GetAngXInst(), 'H' )         ; break ;
+ 460   4              case 0x0124 : pc_data = FloatToInt( GetAngYInst(), 'L' )         ; break ;
+ 461   4              case 0x0125 : pc_data = FloatToInt( GetAngYInst(), 'H' )         ; break ;
+ 462   4              case 0x0128 : pc_data = (GetFilterCnt())                         ; break ;
+ 463   4              case 0x0129 : pc_data = Addr                                     ; break ;
+ 464   4      
+ 465   4              //*************************************************************
+ 466   4              case 0xA000 : pc_data = 0xAC00                                   ; break ;
+ 467   4              case 0xA001 : pc_data = Get_McuTemp()                                 ; break ;
+ 468   4              //******************************************************
+ 469   4              case 0xA100 : pc_data = 0xAC01 ;                                 ; break ;
+ 470   4              case 0xA101 : pc_data = GetXFtVal()                             ; break ;    //HXL 12/8/27
+ 471   4              case 0xA102 : pc_data = FloatToInt(GetXAngAllSetVal(),'L')       ; break ;
+ 472   4              case 0xA103 : pc_data = FloatToInt(GetXAngAllSetVal(),'H')       ; break ;
+ 473   4              case 0xA11C : pc_data = GetAngXCalAdcVal(addr-0xA104)              ; break ;
+ 474   4              case 0xA14D : pc_data = FloatToInt(GetAngXCalAngVal((addr-0xA11D)/2),'L'); break ; //HXL 12/8/27整
+             -合更新
+ 475   4              case 0xA14E : pc_data = FloatToInt(GetAngXCalAngVal((addr-0xA11E)/2),'H'); break ; 
+ 476   4              //******************************************************
+ 477   4              case 0xA200 : pc_data = 0xAC02 ;                                 ; break ;
+ 478   4              case 0xA202 : pc_data = FloatToInt(GetYAngAllSetVal(),'L')       ; break ;
+ 479   4              case 0xA203 : pc_data = FloatToInt(GetYAngAllSetVal(),'H')       ; break ;           
+ 480   4              case 0xA21C : pc_data = GetAngYCalAdcVal(addr-0xA204)              ; break ;  
+ 481   4            case 0xA24D : pc_data = FloatToInt(GetAngYCalAngVal((addr-0xA21D)/2),'L'); break ;   
+ 482   4              case 0xA24E : pc_data = FloatToInt(GetAngYCalAngVal((addr-0xA21E)/2),'H'); break ;     
+ 483   4              //*************************************************************
+C51 COMPILER V9.01   MODBUSRTU                                                             06/25/2018 15:28:31 PAGE 9   
+
+ 484   4              case 0xA300 : pc_data = 0xAC03                                      ; break ;
+ 485   4              case 0xA301 : pc_data = SystemVer[ 0] *256 + SystemVer[ 1]          ; break ;
+ 486   4              case 0xA302 : pc_data = SystemVer[ 2] *256 + SystemVer[ 3]          ; break ;
+ 487   4              case 0xA303 : pc_data = SystemVer[ 4] *256 + SystemVer[ 5]          ; break ;
+ 488   4              case 0xA304 : pc_data = SystemVer[ 6] *256 + SystemVer[ 7]          ; break ;
+ 489   4              case 0xA305 : pc_data = SystemVer[ 8] *256 + SystemVer[ 9]          ; break ;
+ 490   4              case 0xA306 : pc_data = SystemVer[10] *256 + SystemVer[11]          ; break ;
+ 491   4              case 0xA307 : pc_data = SystemVer[12] *256 + SystemVer[13]          ; break ;
+ 492   4              case 0xA308 : pc_data = SystemVer[14] *256 + SystemVer[15]          ; break ;
+ 493   4              case 0xA309 : pc_data = GetXFtVal()                                 ; break ;
+ 494   4              case 0xA30A : pc_data = GetYFtVal()                                 ; break ;
+ 495   4              case 0xA30D : pc_data = FloatToInt( GetXAng()         ,'L' )        ; break ;
+ 496   4              case 0xA30E : pc_data = FloatToInt( GetXAng()         ,'H' )        ; break ;
+ 497   4              case 0xA30F : pc_data = FloatToInt( GetYAng()         ,'L' )        ; break ;
+ 498   4              case 0xA310 : pc_data = FloatToInt( GetYAng()         ,'H' )        ; break ;
+ 499   4              case 0xA311 : pc_data = FloatToInt( GetAngXRelSys()  ,'L' )        ; break ;
+ 500   4              case 0xA312 : pc_data = FloatToInt( GetAngXRelSys()  ,'H' )        ; break ;
+ 501   4              case 0xA313 : pc_data = FloatToInt( GetAngYRelSys()  ,'L' )        ; break ;
+ 502   4              case 0xA314 : pc_data = FloatToInt( GetAngYRelSys()  ,'H' )        ; break ;
+ 503   4              case 0xA315 : pc_data = FloatToInt( GetAngXZeroUsr()     ,'L' )     ; break ;
+ 504   4              case 0xA316 : pc_data = FloatToInt( GetAngXZeroUsr()     ,'H' )     ; break ;
+ 505   4              case 0xA317 : pc_data = FloatToInt( GetAngYZeroUsr()     ,'L' )     ; break ;
+ 506   4              case 0xA318 : pc_data = FloatToInt( GetAngYZeroUsr()     ,'H' )     ; break ;
+ 507   4              case 0xA319 : pc_data = FloatToInt( GetXAngAllSetVal() ,'L' )       ; break ;
+ 508   4              case 0xA31A : pc_data = FloatToInt( GetXAngAllSetVal() ,'H' )       ; break ;
+ 509   4              case 0xA31B : pc_data = FloatToInt( GetYAngAllSetVal() ,'L' )       ; break ;
+ 510   4              case 0xA31C : pc_data = FloatToInt( GetYAngAllSetVal() ,'H' )       ; break ;
+ 511   4              case 0xA31D : pc_data = FloatToInt( GetAngP(), 'L' )                ; break ;
+ 512   4              case 0xA31E : pc_data = FloatToInt( GetAngP(), 'H' )                ; break ;
+ 513   4              case 0xA327 : pc_data = FloatToInt( GetAngXSysZero()   , 'L' )      ; break ;
+ 514   4              case 0xA328 : pc_data = FloatToInt( GetAngXSysZero()   , 'H' )      ; break ;
+ 515   4              case 0xA329 : pc_data = FloatToInt( GetAngYSysZero()   , 'L' )      ; break ;
+ 516   4              case 0xA32A : pc_data = FloatToInt( GetAngYSysZero()   , 'H' )      ; break ;
+ 517   4              case 0xA32B : pc_data = FloatToInt( GetAngXUsrZero()        , 'L' ) ; break ;
+ 518   4              case 0xA32C : pc_data = FloatToInt( GetAngXUsrZero()        , 'H' ) ; break ;
+ 519   4              case 0xA32D : pc_data = FloatToInt( GetAngYUsrZero()        , 'L' ) ; break ;
+ 520   4              case 0xA32E : pc_data = FloatToInt( GetAngYUsrZero()        , 'H' ) ; break ;
+ 521   4              case 0xA32F : pc_data = FloatToInt( GetAngXInst()    , 'L' )        ; break ;
+ 522   4              case 0xA330 : pc_data = FloatToInt( GetAngXInst()    , 'H' )        ; break ;
+ 523   4              case 0xA331 : pc_data = FloatToInt( GetAngYInst()    , 'L' )        ; break ;
+ 524   4              case 0xA332 : pc_data = FloatToInt( GetAngYInst()    , 'H' )        ; break ;
+ 525   4      
+ 526   4              case 0xA342 :pc_data = 0 ; break ;// pc_data = FloatToInt( Get_AngHigh()    , 'H' )     ; break ; 
+             -//获取DA输出对应的最大角度
+ 527   4      
+ 528   4              case 0xA343 : pc_data = '1'*256+'8'                                 ; break ;
+ 529   4              case 0xA344 : pc_data = '6'*256+'B'                                 ; break ;
+ 530   4              case 0xA345 : pc_data = 2018                                               ; break ;
+ 531   4              case 0xA346 : pc_data = 316                                                ; break ;
+ 532   4              case 0xA347 : pc_data = 0                                           ; break ;
+ 533   4              case 0xA348 : //pc_data = (GetAngXCalCnt() *256) + GetTempXCalCnt()   ; break ;
+ 534   4              case 0xA349 : pc_data = AngRange                                    ; break ;
+ 535   4              case 0xA34A : pc_data = SendActPosi                                 ; break ;
+ 536   4              case 0xA34B : pc_data = SendSpeedNum                                ; break ;
+ 537   4              case 0xA34C : pc_data = GetFilterCnt()                              ; break ;
+ 538   4              case 0xA34D : pc_data = 0                                           ; break ;
+ 539   4              case 0xA34E : pc_data = 97                                         ; break ;
+ 540   4          }
+ 541   3      }
+ 542   2              default:    *excode=2;
+ 543   2                                              return(FALSE);
+ 544   2       //       default:     return(FALSE);
+C51 COMPILER V9.01   MODBUSRTU                                                             06/25/2018 15:28:31 PAGE 10  
+
+ 545   2          }
+ 546   1          ModRtu_Rd16u( buf, pc_data ) ;
+ 547   1          return(TRUE);
+ 548   1      }
+ 549          //***********************************************************************/
+ 550          // *功    能：读寄存器的值
+ 551          // *入    口：
+ 552          // *出    口：
+ 553          // *备    注：
+ 554          // *函数性质：  
+ 555          //主机发送命令：[设备地址]+[命令号]+[起始寄存器地址高8位][低8位]
+ 556          //                       +[读取的寄存器数高8位][低8位]+[CRC校验的低8位][CRC校验的高8位]
+ 557          //设备响应：         
+ 558          //      [设备地址] [命令号] [返回的字节个数][数据1][数据2]...[数据n][CRC校验的低8位] [CRC校验的高8位]
+ 559          
+ 560          //***********************************************************************/
+ 561          void ModRtu_RdReg (int8u* buf)
+ 562          {   int16u addr;
+ 563   1          int16u i,j;
+ 564   1          int16u crc=0;
+ 565   1          int8u err_code = 0,excode;
+ 566   1      
+ 567   1          if(buf[0] == 0)return;              //不支持广播方式
+ 568   1          addr = ModRtu_8to16(&buf[2]);               //读要读取寄存器的起始地址 h=buf[2],l=buf[3]
+ 569   1          j = ModRtu_8to16(&buf[4]);                  //读取的寄存器数 h=buf[4],l=buf[5]
+ 570   1          for(i = 0; i < j; i++)
+ 571   1          {
+ 572   2              if(FALSE == ModRtu_RdVal(addr,&buf[3+i*2],&excode))
+ 573   2              {
+ 574   3                  err_code = 1;
+ 575   3                  break;
+ 576   3              }
+ 577   2              addr++;
+ 578   2          }
+ 579   1          if(err_code == 1)
+ 580   1          {
+ 581   2              ModRtu_RlyError(buf,excode);
+ 582   2              return;
+ 583   2          }
+ 584   1          buf[2] = j*2;                               //数据长度
+ 585   1          i = j*2+3;                                          //CRC的寄存器个数=设备号+命令号+数据总数+数据数
+ 586   1          crc = ModbusCrcCnt(buf,i);          //计算CRC
+ 587   1          ModRtu_WrCrc(&buf[i],crc);      //写入CRC校验码
+ 588   1          Comm_PutStr(buf,i+2);                       //i+2 加2是指加CRC的结果
+ 589   1          Comm_SendSta();
+ 590   1      }
+ 591          //***********************************************************************/
+ 592          // *功    能：写寄存器的值
+ 593          // *入    口：
+ 594          // *出    口：
+ 595          // *备    注：
+ 596          // *函数性质：
+ 597          //***********************************************************************/
+ 598          void ModRtu_WrReg (int8u* buf,int8u n)
+ 599          {   int16u addr;
+ 600   1          int16u i,j;
+ 601   1          int16u crc;
+ 602   1          int8u err_code = 0,excode;
+ 603   1      
+ 604   1          j = ModRtu_8to16(&buf[4]);
+ 605   1          if((n != (j*2+9))||(buf[6]!= (j*2)))    return;     //数据长度判断
+ 606   1          addr = ModRtu_8to16(&buf[2]);                                       //地址
+C51 COMPILER V9.01   MODBUSRTU                                                             06/25/2018 15:28:31 PAGE 11  
+
+ 607   1          for(i = 0; i < j; i++)
+ 608   1          {
+ 609   2              if(FALSE == ModRtu_WrVal(addr,&buf[7+i*2],&excode))
+ 610   2              {
+ 611   3                  err_code = 1;
+ 612   3                  break;
+ 613   3              }
+ 614   2              addr++;
+ 615   2          }
+ 616   1          if(buf[0] == 0) return;         //广播方式无返回
+ 617   1          if(err_code == 1)
+ 618   1          {
+ 619   2              ModRtu_RlyError(buf,excode);
+ 620   2              return;
+ 621   2          }
+ 622   1          crc = ModbusCrcCnt(buf,6);
+ 623   1          ModRtu_WrCrc(&buf[6],crc);
+ 624   1          Comm_PutStr(buf,8);
+ 625   1          Comm_SendSta();
+ 626   1          if(  1 == udflashtag )
+ 627   1          {
+ 628   2              udflashtag=0;
+ 629   2                      Flash_UserDataUpdate();
+ 630   2          }
+ 631   1      }
+ 632          //***********************************************************************/
+ 633          // *功    能：通讯异常处理
+ 634          // *入    口：
+ 635          // *出    口：
+ 636          // *备    注：
+ 637          // *函数性质：
+ 638          //***********************************************************************/
+ 639          /*void ModRtu_RlyError (int8u* buf)
+ 640          {   int16u crc;
+ 641          
+ 642              buf[1] |= 0x80;                 //功能码最高位设置为1
+ 643              buf[2] = 0xff;
+ 644              crc = ModbusCrcCnt(buf,6);
+ 645              buf[3] = MR_READ_REGL(crc);
+ 646              buf[4] = MR_READ_REGH(crc);
+ 647              Comm_PutStr(buf,5);
+ 648              Comm_SendSta();
+ 649          }*/
+ 650          void ModRtu_RlyError (int8u* buf,int8u excode)
+ 651          {   int16u crc;
+ 652   1      
+ 653   1          buf[1] |= 0x80;                 //功能码最高位设置为1
+ 654   1          buf[2] = excode;
+ 655   1          crc = ModbusCrcCnt(buf,3);      //liuliu 更改长度,原为6,error
+ 656   1          buf[3] = MR_READ_REGH(crc);     //liuliu 2013-04-01
+ 657   1          buf[4] = MR_READ_REGL(crc);         //liuliu 2013-04-01
+ 658   1          Comm_PutStr(buf,5);
+ 659   1          Comm_SendSta();
+ 660   1      }
+ 661          //***********************************************************************/
+ 662          // *功    能：接收数据帧处理
+ 663          // *入    口：
+ 664          // *出    口：
+ 665          // *备    注：
+ 666          // *函数性质：
+ 667          //***********************************************************************/
+ 668          void ModRtu_RxProc (int8u* buf, int8u n)
+C51 COMPILER V9.01   MODBUSRTU                                                             06/25/2018 15:28:31 PAGE 12  
+
+ 669          {
+ 670   1          if(FALSE == ModRtu_ChkCrc(buf,n)) return;                   //计算校验结果
+ 671   1      
+ 672   1          switch(buf[1])
+ 673   1          {
+ 674   2              case READ:          ModRtu_RdReg(buf);                                  // 读取寄存器
+ 675   2                                  break;
+ 676   2              case WRITE:         ModRtu_WrReg(buf,n);                                // 写寄存器
+ 677   2                                  break;
+ 678   2              default:            ModRtu_RlyError(buf,1);
+ 679   2                                  break;
+ 680   2          }
+ 681   1      }
+ 682          
+ 683          #endif
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   3765    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =     13      12
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----      62
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
